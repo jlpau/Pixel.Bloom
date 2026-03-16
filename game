@@ -1,0 +1,427 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Pixel Garden</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.3/p5.min.js"></script>
+  <style>
+    body {
+      margin: 0;
+      background: #1a1008;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+    }
+    canvas { display: block; }
+  </style>
+</head>
+<body>
+<script>
+// ─── globals ───────────────────────────────────────────────────────────────
+let flowers   = [];
+let raindrops = [];
+
+const NUM_FLOWERS = 12;
+const NUM_DROPS   = 80;
+const GROUND_Y    = 340;
+const TILE        = 6;
+
+let progressBar = 0;
+let happyTarget  = 0;
+let gardenDone   = false;
+
+// ─── setup / draw ──────────────────────────────────────────────────────────
+function setup() {
+  createCanvas(660, 480);
+  textFont('Courier New');
+  initGarden();
+}
+
+function draw() {
+  drawSky();
+  drawSoil();
+
+  for (let d of raindrops) { d.fall(); d.show(); }
+  for (let f of flowers)   { f.grow(); f.sway(); f.show(); }
+
+  drawProgressBar();
+  checkIfAllDone();
+  if (gardenDone) drawDoneMessage();
+}
+
+// ─── garden init ───────────────────────────────────────────────────────────
+function initGarden() {
+  gardenDone  = false;
+  progressBar = 0;
+  happyTarget  = 0;
+
+  flowers = [];
+  for (let i = 0; i < NUM_FLOWERS; i++) {
+    let x = 30 + i * (width - 60) / (NUM_FLOWERS - 1);
+    flowers.push(new Plant(x, GROUND_Y));
+  }
+
+  raindrops = [];
+  for (let i = 0; i < NUM_DROPS; i++) {
+    raindrops.push(new Drop());
+  }
+}
+
+// ─── background ────────────────────────────────────────────────────────────
+function drawSky() {
+  noStroke();
+  for (let y = 0; y < GROUND_Y; y += TILE) {
+    let t = map(y, 0, GROUND_Y, 0, 1);
+    fill(
+      226 + (238 - 226) * t,
+      240 + (230 - 240) * t,
+      220 + (208 - 220) * t
+    );
+    rect(0, y, width, TILE);
+  }
+}
+
+function drawSoil() {
+  const browns = [
+    color(144, 98, 56),
+    color(112, 72, 38),
+    color(82,  52, 24),
+    color(60,  38, 14)
+  ];
+  noStroke();
+  for (let i = 0; i < 4; i++) {
+    fill(browns[i]);
+    rect(0, GROUND_Y + i * TILE, width, TILE);
+  }
+  fill(browns[3]);
+  rect(0, GROUND_Y + 4 * TILE, width, height);
+}
+
+// ─── HUD ───────────────────────────────────────────────────────────────────
+function drawProgressBar() {
+  progressBar += (happyTarget - progressBar) * 0.02;
+
+  noStroke();
+  fill(50, 34, 12, 60);
+  rect(10, 10, 130, 8, 3);
+
+  let bw = (progressBar / 100) * 130;
+  fill(
+    190 + (80  - 190) * (progressBar / 100),
+    180 + (160 - 180) * (progressBar / 100),
+    20  + (60  - 20)  * (progressBar / 100)
+  );
+  rect(10, 10, bw, 8, 3);
+
+  fill(55, 38, 18);
+  textSize(8);
+  textAlign(LEFT, BASELINE);
+  text('✿ garden mood', 10, 28);
+
+  let bloomed = flowers.filter(f => f.isDone).length;
+
+  const msgs = [
+    '', 'a seed of hope', 'tend to your garden', 'life finds its way',
+    'the garden listens', 'patience blooms'
+  ];
+  let msg = bloomed >= 6 ? 'you are growing too' : (msgs[bloomed] || '');
+  if (bloomed > 0) {
+    fill(55, 38, 18, 120);
+    textSize(9);
+    text(msg, width - 145, 22);
+  }
+
+  happyTarget = min(100, bloomed * 16);
+}
+
+function checkIfAllDone() {
+  if (gardenDone) return;
+  if (flowers.every(f => f.isDone)) gardenDone = true;
+}
+
+function drawDoneMessage() {
+  noStroke();
+  fill(245, 238, 210, 200);
+  rect(0, 0, width, height);
+
+  fill(209, 160, 103);
+  rect(width / 2 - 130, height / 2 - 28, 260, 56, 6);
+
+  fill(55, 38, 18);
+  textSize(13);
+  textAlign(CENTER, CENTER);
+  text('✿ the garden is in full bloom ✿', width / 2, height / 2 - 8);
+
+  textSize(8);
+  fill(100, 72, 38);
+  text('press R to plant a new garden', width / 2, height / 2 + 12);
+
+  textAlign(LEFT, BASELINE);
+}
+
+// ─── input ─────────────────────────────────────────────────────────────────
+function mousePressed() {
+  for (let f of flowers) {
+    if (dist(mouseX, mouseY, f.x, f.y) < 50) {
+      f.water = min(6, f.water + 3);
+
+      let splashed = 0;
+      for (let d of raindrops) {
+        if (splashed >= 12) break;
+        if (d.finished) {
+          d.reset(f.x + random(-18, 18), random(-50, -10));
+          splashed++;
+        }
+      }
+    }
+  }
+}
+
+function keyPressed() {
+  if (key === 'r' || key === 'R') initGarden();
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Drop — a single raindrop
+// ═══════════════════════════════════════════════════════════════════════════
+class Drop {
+  constructor() {
+    this.reset(random(width), random(-height, 0));
+  }
+
+  reset(startX, startY) {
+    this.x        = startX;
+    this.y        = startY;
+    this.speedX   = random(-0.4, 0.4);
+    this.speedY   = random(1.2, 2.8);
+    this.alpha    = random(120, 200);
+    this.finished = false;
+  }
+
+  fall() {
+    if (this.finished) return;
+    this.x      += this.speedX;
+    this.y      += this.speedY;
+    this.speedY += 0.04;
+    this.alpha  -= 1.2;
+    if (this.alpha <= 0 || this.y > height) this.finished = true;
+  }
+
+  show() {
+    if (this.finished) return;
+    noStroke();
+    let px = round(this.x / TILE) * TILE;
+    let py = round(this.y / TILE) * TILE;
+    fill(82,  196, 252, this.alpha);
+    rect(px, py,       TILE, TILE);
+    fill(160, 228, 255, this.alpha * 0.6);
+    rect(px, py - TILE, TILE, TILE);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Plant — a flower that grows when watered
+// ═══════════════════════════════════════════════════════════════════════════
+class Plant {
+  constructor(startX, startY) {
+    this.x       = startX;
+    this.y       = startY;
+    this.kind    = int(random(3));       // 0 tulip | 1 daisy | 2 wildflower
+    this.tallest = random(38, 92);
+    this._init();
+  }
+
+  _init() {
+    this.height       = 0;
+    this.speed        = random(0.18, 0.45);
+    this.lean         = random(-0.18, 0.18);
+    this.wobbleOffset = random(TWO_PI);
+    this.wobble       = 0;
+    this.water        = 0;
+    this.bloomAmount  = 0;
+    this.isDone       = false;
+    this.stage        = 'bud';
+    this.budPulse     = random(TWO_PI);
+
+    // wobbly stem path
+    let steps = ceil(this.tallest / TILE) + 2;
+    this.stemPath = [0];
+    for (let i = 1; i < steps; i++) {
+      this.stemPath[i] = this.stemPath[i - 1] + random(-0.7, 0.7) * TILE + this.lean * TILE;
+    }
+
+    // 5×5 mirrored flower bitmap
+    this.flowerShape = [];
+    for (let row = 0; row < 5; row++) {
+      let a = random(1) > 0.45 ? 1 : 0;
+      let b = random(1) > 0.32 ? 1 : 0;
+      let c = (row === 2) ? 1 : (random(1) > 0.42 ? 1 : 0);
+      this.flowerShape[row] = [a, b, c, b, a];
+    }
+  }
+
+  grow() {
+    if (this.water <= 0) return;
+
+    if (this.stage === 'bud') this.stage = 'growing';
+
+    if (this.stage === 'growing') {
+      this.height = min(this.tallest, this.height + this.speed);
+      if (this.height >= this.tallest) this.stage = 'bloomed';
+    }
+
+    if (this.stage === 'bloomed') {
+      this.bloomAmount = min(1.0, this.bloomAmount + 0.018);
+      if (this.bloomAmount >= 1.0) this.isDone = true;
+    }
+
+    this.water *= 0.975;
+    if (this.water < 0.05) this.water = 0;
+  }
+
+  sway() {
+    let wind = sin(frameCount * 0.018 + this.wobbleOffset);
+    this.wobble = wind * map(this.height, 0, this.tallest, 0, 4.5);
+  }
+
+  show() {
+    noStroke();
+    this._drawPot();
+    if (this.stage === 'bud') {
+      this._drawBud();
+    } else {
+      this._drawStem();
+      this._drawLeaves();
+      if (this.bloomAmount > 0) this._drawFlower();
+    }
+  }
+
+  // ── sub-drawers ──────────────────────────────────────────────────────────
+  _drawBud() {
+    let px = round(this.x / TILE) * TILE;
+    let py = round((this.y - TILE) / TILE) * TILE;
+
+    let shine = 0.55 + sin(this.budPulse) * 0.18;
+    this.budPulse += 0.04;
+
+    fill(46, 108, 32, 200); rect(px, py,        TILE, TILE);
+    fill(28, 70,  20, 200); rect(px, py - TILE, TILE, TILE);
+
+    let bc = this.kind === 0 ? color(196, 120, 22)
+           : this.kind === 1 ? color(200, 230, 180)
+           :                   color(64,  144, 44);
+    fill(red(bc) * shine, green(bc) * shine, blue(bc) * shine);
+    rect(px,        py - 2 * TILE, TILE,      TILE);
+    rect(px - TILE, py - 3 * TILE, 3 * TILE,  TILE);
+    rect(px,        py - 4 * TILE, TILE,      TILE);
+
+    fill(46, 108, 32, 180);
+    rect(px - TILE, py - 2 * TILE, TILE, TILE);
+    rect(px + TILE, py - 2 * TILE, TILE, TILE);
+
+    let hintAlpha = 80 + sin(this.budPulse * 0.7) * 60;
+    fill(55, 38, 18, hintAlpha);
+    textSize(8);
+    textAlign(CENTER);
+    text('click to water', px + TILE / 2, py - 6 * TILE);
+    textAlign(LEFT, BASELINE);
+  }
+
+  _drawPot() {
+    let px = round(this.x);
+    let py = round(this.y);
+
+    if (this.kind === 2) {
+      // glass jar
+      fill(192, 220, 238, 180); rect(px - 2*TILE, py,        4*TILE, 2*TILE);
+      fill(150, 190, 215, 140); rect(px - 2*TILE, py + TILE, 4*TILE, TILE);
+      fill(215, 238, 250, 200); rect(px - 2*TILE, py,        TILE,   2*TILE);
+    } else {
+      // terracotta pot
+      fill(198, 120, 84);      rect(px - 3*TILE, py,          6*TILE, TILE);
+      fill(166, 90,  60);      rect(px - 2*TILE, py + TILE,   4*TILE, TILE);
+      fill(128, 64,  42);      rect(px - TILE,   py + 2*TILE, 2*TILE, TILE);
+      fill(198, 120, 84, 130); rect(px - 2*TILE, py + TILE,   TILE,   TILE);
+    }
+  }
+
+  _drawStem() {
+    let steps = ceil(this.height / TILE);
+    for (let i = 0; i < steps; i++) {
+      let sx = round((this.x + this.stemPath[i] + this.wobble * (i / steps)) / TILE) * TILE;
+      let sy = round((this.y - i * TILE) / TILE) * TILE;
+      fill((round(sx / TILE) + round(sy / TILE)) % 2 === 0 ? color(28, 70, 20) : color(46, 108, 32));
+      rect(sx, sy, TILE, TILE);
+    }
+  }
+
+  _drawLeaves() {
+    let steps     = ceil(this.height / TILE);
+    let leafCount = 0;
+
+    for (let i = 4; i < steps - 2; i += 4) {
+      let sx   = round((this.x + this.stemPath[i] + this.wobble * (i / steps)) / TILE) * TILE;
+      let sy   = round((this.y - i * TILE) / TILE) * TILE;
+      let side = leafCount % 2 === 0 ? 1 : -1;
+      let lsz  = min(2, (this.height - i * TILE) / (TILE * 2));
+
+      for (let j = 0; j < 2; j++) {
+        let lx = round((sx + side * (j + 1) * TILE) / TILE) * TILE;
+        let ly = round((sy - j * TILE * 0.5) / TILE) * TILE;
+        fill(j % 2 === 0 ? color(64, 144, 44, 200 * lsz) : color(90, 180, 62, 200 * lsz));
+        rect(lx, ly, TILE, TILE);
+        fill(90, 180, 62, 80 * lsz);
+        rect(lx, ly - TILE, TILE, TILE);
+      }
+      leafCount++;
+    }
+  }
+
+  _drawFlower() {
+    let steps = ceil(this.height / TILE);
+    let tipX  = round((this.x + this.stemPath[min(steps - 1, this.stemPath.length - 1)] + this.wobble) / TILE) * TILE;
+    let tipY  = round((this.y - steps * TILE) / TILE) * TILE;
+    let fx    = tipX - 2 * TILE;
+    let fy    = tipY - 5 * TILE;
+
+    for (let row = 0; row < 5; row++) {
+      for (let col = 0; col < 5; col++) {
+        if (!this.flowerShape[row][col]) continue;
+
+        let petal;
+        if (this.kind === 0) {
+          let edge = (col === 0 || col === 4 || row === 0);
+          petal = edge ? color(196, 120, 22) : color(248, 168, 36);
+        } else if (this.kind === 1) {
+          let center = (col === 2 && row >= 1 && row <= 3);
+          petal = center ? color(250, 228, 30) : color(255, 252, 228);
+        } else {
+          petal = color(142, 125, 190);
+        }
+
+        fill(red(petal), green(petal), blue(petal), this.bloomAmount * 255);
+        rect(fx + col * TILE, fy + row * TILE, TILE, TILE);
+      }
+    }
+
+    // glow halo when fully open
+    if (this.bloomAmount > 0.88) {
+      let gc = this.kind === 0 ? color(248, 168, 36)
+             : this.kind === 1 ? color(250, 228, 30)
+             :                   color(90,  180, 62);
+      let str   = (this.bloomAmount - 0.88) * 0.4;
+      let pulse = 0.8 + sin(frameCount * 0.04) * 0.2;
+      fill(red(gc), green(gc), blue(gc), str * 255 * pulse);
+      for (let row = -1; row <= 5; row++) {
+        for (let col = -1; col <= 5; col++) {
+          if (row >= 0 && row < 5 && col >= 0 && col < 5) continue;
+          rect(fx + col * TILE, fy + row * TILE, TILE, TILE);
+        }
+      }
+    }
+  }
+}
+</script>
+</body>
+</html>
